@@ -41,7 +41,7 @@ def run(
 
 			budget_mgr = BudgetManager(total_budget_usd=config.budget_usd, max_open_positions=config.max_open_positions)
 			bandit = ThompsonBandit()
-			estimator = PriceEstimator()
+			estimator = PriceEstimator(get_comps=lambda q: client.fetch_comparable_prices(q, limit=40))
 			finder = OpportunityFinder(min_spread=config.purchase_spread_min, min_roi=config.target_roi_min)
 
 			for _ in range(max(1, cycles)):
@@ -63,7 +63,7 @@ def run(
 
 				scored: list[tuple[float, Listing]] = []
 				for listing in listings:
-					opp = finder.evaluate(listing, estimator)
+					opp = await finder.evaluate(listing, estimator)
 					if not opp:
 						continue
 					arm = categorize_listing(listing)

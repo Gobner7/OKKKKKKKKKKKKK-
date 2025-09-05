@@ -1,0 +1,14 @@
+playwright
+httpx
+pydantic
+python-dotenv
+pandas
+numpy
+scikit-learn
+rich
+typer[all]
+loguru
+tenacity
+aiofiles
+apscheduler
+orjson

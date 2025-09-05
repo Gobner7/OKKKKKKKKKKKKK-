@@ -13,6 +13,8 @@ from .models import Listing
 from .pricing import PriceEstimator, OpportunityFinder
 from .risk import BudgetManager, Position
 from .strategy import ThompsonBandit, categorize_listing, score_opportunity
+from .features import extract_features
+from .bandit import LinUCB
 
 
 app = Typer()
@@ -40,7 +42,8 @@ def run(
 			await client.ensure_logged_in()
 
 			budget_mgr = BudgetManager(total_budget_usd=config.budget_usd, max_open_positions=config.max_open_positions)
-			bandit = ThompsonBandit()
+			bandit_simple = ThompsonBandit()
+			linucb = LinUCB(alpha=0.6, dim=8, state_path=Path.home() / ".csfloat/linucb.json")
 			estimator = PriceEstimator(get_comps=lambda q: client.fetch_comparable_prices(q, limit=40))
 			finder = OpportunityFinder(min_spread=config.purchase_spread_min, min_roi=config.target_roi_min)
 
@@ -67,15 +70,22 @@ def run(
 					if not opp:
 						continue
 					arm = categorize_listing(listing)
-					arm_score = bandit.sample(arm)
-					s = score_opportunity(opp, arm_score)
+					arm_score = bandit_simple.sample(arm)
+					feat = extract_features(listing)
+					feat_keys = ["bias","price","log_price","is_knife","is_glove","is_popular","has_sticker","float"]
+					ctx_score = linucb.score(feat, feat_keys)
+					s = score_opportunity(opp, arm_score) * (0.5 + 0.5 * max(0.0, min(1.0, ctx_score)))
 					scored.append((s, listing))
 
 				scored.sort(reverse=True, key=lambda x: x[0])
 				for score, listing in scored[:5]:
 					if not budget_mgr.can_open(listing.price_usd):
 						continue
-					# Open hypothetical position
+					# Kelly sizing proxy: fraction = clamp(expected_roi / variance)
+					fraction = max(0.05, min(0.5, max(0.0, score)))
+					allocation = min(budget_mgr.available_usd, listing.price_usd * fraction)
+					if allocation < listing.price_usd:
+						continue
 					target_price = listing.price_usd * (1.0 + config.relist_markup)
 					pos = Position(
 						id=listing.id,
@@ -92,10 +102,11 @@ def run(
 					if not config.dry_run:
 						ok = await client.attempt_purchase(listing.url)
 						logger.info(f"Purchase attempted: {ok}")
-					# Update bandit with pseudo-reward = score clipped to [0,1]
+					# Update bandits with pseudo-reward = score clipped to [0,1]
 					arm = categorize_listing(listing)
 					reward = max(0.0, min(1.0, score))
-					bandit.update(arm, reward)
+					bandit_simple.update(arm, reward)
+					linucb.update(feat, reward, feat_keys)
 
 	asyncio.run(main())
 

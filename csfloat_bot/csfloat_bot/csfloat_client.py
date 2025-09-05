@@ -128,6 +128,10 @@ class CSFloatWebClient:
 		await search.first.type(query, delay=10)
 		await self._page.keyboard.press('Enter')
 		await self._page.wait_for_timeout(600)
+		# Try scrolling to load more items
+		for _ in range(3):
+			await self._page.mouse.wheel(0, 1500)
+			await self._page.wait_for_timeout(300)
 		try:
 			data = await self._page.evaluate(
 				r"""

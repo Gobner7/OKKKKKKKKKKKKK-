@@ -5,12 +5,21 @@ import statistics
 
 
 class PriceEstimator:
-	def __init__(self, get_comps):
+	def __init__(self, get_comps, cache_size: int = 256):
 		self.get_comps = get_comps
+		self._cache: dict[str, list[float]] = {}
+		self._cache_size = cache_size
 
 	async def estimate_fmv(self, listing: Listing) -> tuple[float, float]:
 		# Fetch comparable prices and compute robust FMV (trimmed mean)
-		comps = await self.get_comps(listing.title)
+		key = listing.title.lower().strip()
+		comps = self._cache.get(key)
+		if comps is None:
+			comps = await self.get_comps(listing.title)
+			if comps:
+				if len(self._cache) >= self._cache_size:
+					self._cache.pop(next(iter(self._cache)))
+				self._cache[key] = comps
 		if not comps:
 			return listing.price_usd, 0.4
 		vals = sorted([v for v in comps if v > 0])
